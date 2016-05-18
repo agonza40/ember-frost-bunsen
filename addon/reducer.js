@@ -3,28 +3,7 @@ import Ember from 'ember'
 const {Logger} = Ember
 import {CHANGE_VALUE, VALIDATION_RESOLVED, CHANGE_MODEL} from './actions'
 import convertSchema from './convert-schema'
-
-function ensureParent (stateValue, id) {
-  // If id does not have a parent the nothing to do
-  if (_.isEmpty(id) || id.indexOf('.') === -1) {
-    return
-  }
-
-  const segments = id.split('.')
-  const idLastSegment = segments.pop()
-  const relativePath = segments.join('.')
-
-  const relativeObject = _.get(stateValue, relativePath)
-  const isArrayItem = /^\d+$/.test(idLastSegment)
-
-  if (isArrayItem && !_.isArray(relativeObject)) {
-    ensureParent(stateValue, segments.join('.'))
-    _.set(stateValue, relativePath, [])
-  } else if (!isArrayItem && !_.isPlainObject(relativeObject)) {
-    ensureParent(stateValue, segments.join('.'))
-    _.set(stateValue, relativePath, {})
-  }
-}
+import immutable from 'immutable'
 
 const INITIAL_VALUE = {
   errors: {},
@@ -33,15 +12,9 @@ const INITIAL_VALUE = {
   model: {}, // Model calculated by the reducer
   baseModel: {} // Original model recieved
 }
+
 export function initialState (state) {
   return _.defaults(state, INITIAL_VALUE)
-}
-
-// TODO: Update lodash and get rid of this
-function unset (obj, path) {
-  _.set(obj, path, undefined)
-  const obStr = JSON.stringify(obj)
-  return JSON.parse(obStr)
 }
 
 /**
@@ -73,14 +46,12 @@ export default function (state, action) {
       let newValue
 
       if (bunsenId === null) {
-        newValue = recursiveClean(value)
+        newValue = immutable(recursiveClean(value))
       } else {
-        newValue = _.cloneDeep(state.value)
         if (_.contains([null, ''], value) || (_.isArray(value) && value.length === 0)) {
-          newValue = unset(newValue, bunsenId)
+          newValue = state.value.without(bunsenId)
         } else {
-          ensureParent(newValue, bunsenId)
-          _.set(newValue, bunsenId, value)
+          newValue = state.value.set(bunsenId, value)
         }
       }
       const newModel = convertSchema(state.baseModel, newValue)
@@ -92,7 +63,7 @@ export default function (state, action) {
       }
 
       return _.defaults({
-        value: newValue,
+        value: immutable(newValue),
         model
       }, state)
 
@@ -111,7 +82,9 @@ export default function (state, action) {
       if (state && state.baseModel) {
         state.model = convertSchema(state.baseModel, state.value || {})
       }
-      return initialState(state || {})
+      const newState = initialState(state || {})
+      newState.value = immutable(newState.value)
+      return newState
 
     default:
       Logger.error(`Do not recognize action ${action.type}`)
